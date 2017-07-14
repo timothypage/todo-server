@@ -22,11 +22,12 @@ defmodule Todo.Cache do
     end
   end
 
-  def start do
-    GenServer.start(__MODULE__, nil)
+  def start_link do
+    IO.puts "Starting to-do cache"
+    GenServer.start_link(__MODULE__, nil, name: :todo_cache)
   end
 
-  def server_process(cache_pid, todo_list_name) do
-    GenServer.call(cache_pid, {:server_process, todo_list_name})
+  def server_process(todo_list_name) do
+    GenServer.call(:todo_cache, {:server_process, todo_list_name})
   end
 end
