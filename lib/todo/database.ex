@@ -1,11 +1,8 @@
 defmodule Todo.Database do
-  use GenServer
-
-  @num_workers 5
+  @pool_size 3 
 
   def start_link(db_folder) do
-    IO.puts("Starting the database")
-    GenServer.start_link(__MODULE__, db_folder, name: :database_server)
+    Todo.PoolSupervisor.start_link(db_folder, @pool_size)
   end
 
   def store(key, data) do
@@ -20,42 +17,30 @@ defmodule Todo.Database do
     |> Todo.DatabaseWorker.get(key)
   end
 
-  def choose_worker(key) do 
-    GenServer.call(:database_server, {:choose_worker, key})
-  end
-
-  def init(db_folder) do
-    {:ok, start_workers(db_folder)}
-  end
-
-  defp start_workers(db_folder) do
-    for index <- 1..@num_workers, into: Map.new do
-      {:ok, pid} = Todo.DatabaseWorker.start_link(db_folder)
-      {index-1, pid}
-    end
-  end
-
-  def handle_call({:choose_worker, key}, _, workers) do
-    worker_key = :erlang.phash2(key, @num_workers)
-
-    {:reply, Map.get(workers, worker_key), workers}
+  defp choose_worker(key) do
+    :erlang.phash2(key, @pool_size) + 1
   end
 end
 
 defmodule Todo.DatabaseWorker do
   use GenServer
 
-  def start_link(db_folder) do
-    IO.puts "Starting db worker"
-    GenServer.start_link(__MODULE__, db_folder)
+  def start_link(db_folder, worker_id) do
+    IO.puts "Starting db worker #{worker_id}"
+
+    GenServer.start_link(
+      __MODULE__, 
+      db_folder,
+      name: via_tuple(worker_id)
+    )
   end
 
   def store(worker_pid, key, data) do
-    GenServer.cast(worker_pid, {:store, key, data})
+    GenServer.cast(via_tuple(worker_pid), {:store, key, data})
   end
 
   def get(worker_pid, key) do
-    GenServer.call(worker_pid, {:get, key})
+    GenServer.call(via_tuple(worker_pid), {:get, key})
   end
 
   def handle_cast({:store, key, data}, db_folder) do
@@ -75,4 +60,8 @@ defmodule Todo.DatabaseWorker do
   end
 
   defp file_name(db_folder, key), do: "#{db_folder}/#{key}"
+
+  defp via_tuple(worker_id) do
+    {:via, Todo.ProcessRegistry, {:database_worker, worker_id}}
+  end
 end
